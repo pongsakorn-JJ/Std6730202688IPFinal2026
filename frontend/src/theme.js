@@ -14,6 +14,7 @@ export const colors = {
 
 // Salary tiers: one hue, light -> dark as pay rises (not traffic-light colours)
 export const tierBg = ['#9ED3CA', '#237A70', '#0B4F49'];
+export const tierBorder = ['#2E7F74', '#0F4E47', '#06302D'];
 export const tierText = ['#14232B', '#FFFFFF', '#FFFFFF'];
 
 // Figures keep the same width so salaries line up

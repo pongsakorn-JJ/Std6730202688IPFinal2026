@@ -17,7 +17,7 @@ import {
   toggleStatus,
 } from '../api';
 import { confirmDialog, showMessage } from '../dialogs';
-import { colors, font, tabular, tierBg, tierText } from '../theme';
+import { colors, font, tabular, tierBg, tierBorder, tierText } from '../theme';
 import { Button, Field } from '../ui';
 
 const formatMoney = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
@@ -28,6 +28,134 @@ function StatusPill({ status }) {
     <View style={[styles.pill, { backgroundColor: active ? colors.accentSoft : colors.amberSoft }]}>
       <View style={[styles.pillDot, { backgroundColor: active ? colors.accent : colors.amber }]} />
       <Text style={[styles.pillText, { color: active ? colors.accent : colors.amber }]}>{status}</Text>
+    </View>
+  );
+}
+
+// ---- Scatter plot of salaries by tier (1-D K-Means drawn as a strip plot) ----
+function niceDomain(min, max) {
+  if (min === max) {
+    const pad = Math.max(1, Math.abs(min) * 0.1);
+    min -= pad;
+    max += pad;
+  }
+  const raw = (max - min) / 3;
+  const p = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 5, 10].map((m) => m * p).find((x) => x >= raw);
+  const lo = Math.floor(min / step) * step;
+  const hi = Math.ceil(max / step) * step;
+  const ticks = [];
+  for (let v = lo; v <= hi + step / 2; v += step) ticks.push(v);
+  return { lo, hi, ticks };
+}
+
+const compact = (v) => (Math.abs(v) >= 1000 ? `${+(v / 1000).toFixed(1)}k` : `${v}`);
+
+function SalaryScatter({ clusters, employees, picked, onPick }) {
+  const [w, setW] = useState(0);
+  const BH = 58; // height of one tier band
+  const LABEL_W = 54;
+  const PAD_R = 10;
+  const INSET = 10;
+
+  // each employee belongs to the tier whose centroid is closest to their salary
+  const tierOf = (sal) => {
+    let best = 0;
+    clusters.forEach((c, i) => {
+      if (Math.abs(sal - c.centroid) < Math.abs(sal - clusters[best].centroid)) best = i;
+    });
+    return best;
+  };
+  const counter = {};
+  const pts = employees.map((e) => {
+    const salary = Number(e.salary);
+    const tier = tierOf(salary);
+    const k = (counter[tier] = (counter[tier] || 0) + 1) - 1;
+    return { ...e, salary, tier, jitter: ((k % 3) - 1) * 13 }; // spread overlapping dots
+  });
+
+  const sal = pts.map((x) => x.salary);
+  const { lo, hi, ticks } = niceDomain(Math.min(...sal), Math.max(...sal));
+  const plotW = Math.max(0, w - LABEL_W - PAD_R);
+  const xOf = (v) => LABEL_W + INSET + ((v - lo) / (hi - lo)) * Math.max(0, plotW - INSET * 2);
+  const H = clusters.length * BH;
+
+  return (
+    <View style={{ marginTop: 18 }}>
+      <Text style={styles.chartTitle}>Salary by tier</Text>
+      <View style={{ height: H + 26 }} onLayout={(e) => setW(e.nativeEvent.layout.width)}>
+        {w > 0 && (
+          <>
+            {clusters.map((c, i) => (
+              <View
+                key={`band-${c.group}`}
+                style={[
+                  styles.chartBand,
+                  { top: i * BH + 2, height: BH - 4, left: LABEL_W, right: PAD_R, backgroundColor: tierBg[i % 3] },
+                ]}
+              />
+            ))}
+            {clusters.map((c, i) => (
+              <View key={`lab-${c.group}`} style={[styles.chartLabel, { top: i * BH, height: BH, width: LABEL_W - 6 }]}>
+                <Text style={styles.chartLabelText}>{c.group}</Text>
+              </View>
+            ))}
+            {ticks.map((t) => (
+              <View key={`grid-${t}`} style={[styles.chartGrid, { left: xOf(t), height: H }]} />
+            ))}
+            {clusters.map((c, i) => (
+              <View
+                key={`mean-${c.group}`}
+                style={[styles.chartMean, { left: xOf(c.centroid) - 1.5, top: i * BH + BH / 2 - 17 }]}
+              />
+            ))}
+            {pts.map((p) => {
+              const isPicked = picked && picked.id === p.id;
+              return (
+                <Pressable
+                  key={p.id}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${p.name}, salary ${formatMoney(p.salary)}, ${clusters[p.tier].group}`}
+                  onPress={() => onPick(isPicked ? null : p)}
+                  hitSlop={8}
+                  style={[
+                    styles.chartDot,
+                    {
+                      left: xOf(p.salary) - 7,
+                      top: p.tier * BH + BH / 2 - 7 + p.jitter,
+                      backgroundColor: tierBg[p.tier % 3],
+                      borderColor: isPicked ? colors.ink : tierBorder[p.tier % 3],
+                      borderWidth: isPicked ? 3 : 2,
+                    },
+                  ]}
+                />
+              );
+            })}
+            {ticks.map((t) => (
+              <Text key={`tick-${t}`} style={[styles.chartTick, { left: xOf(t) - 22, top: H + 6 }]}>
+                {compact(t)}
+              </Text>
+            ))}
+          </>
+        )}
+      </View>
+      <Text style={styles.chartAxis}>Base salary</Text>
+
+      <View style={styles.legend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: tierBg[1], borderColor: tierBorder[1] }]} />
+          <Text style={styles.legendText}>Employee</Text>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={styles.legendBar} />
+          <Text style={styles.legendText}>Tier average</Text>
+        </View>
+      </View>
+      <Text style={styles.chartPicked}>
+        {picked
+          ? `${picked.name} · ${formatMoney(picked.salary)} · ${clusters[picked.tier].group}`
+          : 'Tap a dot to see who it is.'}
+      </Text>
     </View>
   );
 }
@@ -46,6 +174,7 @@ export default function DashboardScreen({ onLogout }) {
 
   const [clusters, setClusters] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
+  const [picked, setPicked] = useState(null);
 
   const handleError = useCallback(
     (e) => {
@@ -128,6 +257,7 @@ export default function DashboardScreen({ onLogout }) {
   const handleAnalyze = async () => {
     setAnalyzing(true);
     setClusters(null);
+    setPicked(null);
     try {
       const data = await getSalaryClusters();
       setClusters(data.clusters);
@@ -140,7 +270,6 @@ export default function DashboardScreen({ onLogout }) {
 
   // ---- UI pieces (plain elements, NOT components, so inputs keep focus) ----
   const maxSalary = employees.reduce((m, e) => Math.max(m, Number(e.salary) || 0), 0);
-  const maxCentroid = clusters && clusters.length ? Math.max(...clusters.map((c) => c.centroid)) : 0;
 
   const topBar = (
     <View style={styles.topBar}>
@@ -183,25 +312,7 @@ export default function DashboardScreen({ onLogout }) {
 
       {clusters && clusters.length > 0 && (
         <View style={{ marginTop: 18 }}>
-          <View style={styles.scaleWrap}>
-            <View style={styles.scaleTrack} />
-            {clusters.map((c, i) => (
-              <View
-                key={c.group}
-                style={[
-                  styles.scaleDot,
-                  {
-                    left: `${(c.centroid / (maxCentroid || 1)) * 100}%`,
-                    backgroundColor: tierBg[i % 3],
-                  },
-                ]}
-              />
-            ))}
-          </View>
-          <View style={styles.scaleEnds}>
-            <Text style={styles.scaleEndText}>Lower pay</Text>
-            <Text style={styles.scaleEndText}>Higher pay</Text>
-          </View>
+          <SalaryScatter clusters={clusters} employees={employees} picked={picked} onPick={setPicked} />
 
           {clusters.map((c, i) => (
             <View key={c.group} style={styles.tier}>
@@ -351,29 +462,22 @@ const styles = StyleSheet.create({
   loadingText: { fontFamily: font.medium, marginTop: 8, color: colors.inkSoft, fontSize: 14 },
   empty: { fontFamily: font.medium, textAlign: 'center', color: colors.inkSoft, marginTop: 14, fontSize: 14 },
 
-  // salary scale
-  scaleWrap: { height: 22, marginHorizontal: 9 },
-  scaleTrack: {
-    position: 'absolute',
-    top: 8,
-    left: -9,
-    right: -9,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.line,
-  },
-  scaleDot: {
-    position: 'absolute',
-    top: 2,
-    marginLeft: -9,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: colors.surface,
-  },
-  scaleEnds: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4, marginBottom: 14 },
-  scaleEndText: { fontFamily: font.medium, fontSize: 12, color: colors.inkMute },
+  // scatter plot
+  chartTitle: { fontFamily: font.bold, fontSize: 15, color: colors.ink, marginBottom: 10 },
+  chartBand: { position: 'absolute', borderRadius: 6, opacity: 0.22 },
+  chartLabel: { position: 'absolute', left: 0, justifyContent: 'center' },
+  chartLabelText: { fontFamily: font.semibold, fontSize: 12, color: colors.inkSoft },
+  chartGrid: { position: 'absolute', top: 0, width: 1, backgroundColor: colors.line },
+  chartMean: { position: 'absolute', width: 3, height: 34, borderRadius: 2, backgroundColor: colors.ink },
+  chartDot: { position: 'absolute', width: 14, height: 14, borderRadius: 7 },
+  chartTick: { position: 'absolute', width: 44, textAlign: 'center', fontFamily: font.medium, fontSize: 11, color: colors.inkMute },
+  chartAxis: { fontFamily: font.medium, fontSize: 12, color: colors.inkSoft, textAlign: 'center', marginTop: 2 },
+  legend: { flexDirection: 'row', gap: 18, marginTop: 10 },
+  legendItem: { flexDirection: 'row', alignItems: 'center' },
+  legendDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, marginRight: 6 },
+  legendBar: { width: 3, height: 14, borderRadius: 2, backgroundColor: colors.ink, marginRight: 7 },
+  legendText: { fontFamily: font.medium, fontSize: 12, color: colors.inkSoft },
+  chartPicked: { fontFamily: font.semibold, fontSize: 13, color: colors.ink, marginTop: 10, marginBottom: 14 },
 
   // tier summary cards
   tier: {
