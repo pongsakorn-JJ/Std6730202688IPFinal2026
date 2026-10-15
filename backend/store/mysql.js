@@ -74,6 +74,15 @@ module.exports = {
     return toEmployee(rows[0]);
   },
 
+  async update(id, { name, position, salary }) {
+    await pool.query(
+      `UPDATE ${T} SET ${q(COL.name)} = ?, ${q(COL.position)} = ?, ${q(COL.salary)} = ? WHERE ${q(COL.id)} = ?`,
+      [name, position, salary, id]
+    );
+    const [rows] = await pool.query(`SELECT * FROM ${T} WHERE ${q(COL.id)} = ?`, [id]);
+    return rows.length ? toEmployee(rows[0]) : null;
+  },
+
   async toggle(id) {
     const [r] = await pool.query(
       `UPDATE ${T} SET ${q(COL.status)} = IF(${q(COL.status)} = 'Active', 'On Leave', 'Active') WHERE ${q(COL.id)} = ?`,

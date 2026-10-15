@@ -25,7 +25,7 @@ const VARIANTS = {
   danger: { bg: 'transparent', fg: colors.danger, border: colors.danger },
 };
 
-export function Button({ title, onPress, variant = 'primary', disabled, loading, style }) {
+export function Button({ title, onPress, variant = 'primary', disabled, loading, compact, style }) {
   const v = VARIANTS[variant];
   return (
     <Pressable
@@ -35,6 +35,7 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading,
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
+        compact && styles.buttonCompact,
         { backgroundColor: v.bg, borderColor: v.border },
         (disabled || loading) && styles.disabled,
         pressed && styles.pressed,
@@ -44,7 +45,7 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading,
       {loading ? (
         <ActivityIndicator color={v.fg} />
       ) : (
-        <Text style={[styles.buttonText, { color: v.fg }]}>{title}</Text>
+        <Text style={[styles.buttonText, compact && styles.buttonTextCompact, { color: v.fg }]}>{title}</Text>
       )}
     </Pressable>
   );
@@ -73,6 +74,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   buttonText: { fontSize: 15, fontFamily: font.bold },
+  buttonCompact: { minHeight: 40, paddingHorizontal: 6 },
+  buttonTextCompact: { fontSize: 13.5 },
   disabled: { opacity: 0.55 },
   pressed: { opacity: 0.8 },
 });

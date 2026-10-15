@@ -19,6 +19,22 @@ function requireAuth(req, res, next) {
   return res.status(401).json({ success: false, message: 'Unauthorized' });
 }
 
+// ---------- Validation ----------
+function parseEmployeeBody(body) {
+  const { name, position, salary } = body || {};
+  const cleanName = typeof name === 'string' ? name.trim() : '';
+  const cleanPosition = typeof position === 'string' ? position.trim() : '';
+  const salaryEmpty = salary === undefined || salary === null || String(salary).trim() === '';
+  if (!cleanName || !cleanPosition || salaryEmpty) {
+    return { error: 'name, position and salary are required' };
+  }
+  const salaryNum = Number(salary);
+  if (!Number.isFinite(salaryNum) || salaryNum < 0) {
+    return { error: 'salary must be a valid non-negative number' };
+  }
+  return { value: { name: cleanName, position: cleanPosition, salary: salaryNum } };
+}
+
 // ---------- K-Means (1D) ----------
 function kmeans1D(values, k = 3, maxIter = 100) {
   const distinct = [...new Set(values)].sort((a, b) => a - b);
@@ -87,21 +103,17 @@ app.get('/api/employees', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/employees', requireAuth, wrap(async (req, res) => {
-  const { name, position, salary } = req.body || {};
-  const cleanName = typeof name === 'string' ? name.trim() : '';
-  const cleanPosition = typeof position === 'string' ? position.trim() : '';
-  const salaryEmpty = salary === undefined || salary === null || String(salary).trim() === '';
-  const salaryNum = salaryEmpty ? NaN : Number(salary);
+  const parsed = parseEmployeeBody(req.body);
+  if (parsed.error) return res.status(400).json({ success: false, message: parsed.error });
+  res.status(201).json(await store.create(parsed.value));
+}));
 
-  if (!cleanName || !cleanPosition || salaryEmpty) {
-    return res.status(400).json({ success: false, message: 'name, position and salary are required' });
-  }
-  if (!Number.isFinite(salaryNum) || salaryNum < 0) {
-    return res.status(400).json({ success: false, message: 'salary must be a valid non-negative number' });
-  }
-
-  const employee = await store.create({ name: cleanName, position: cleanPosition, salary: salaryNum });
-  res.status(201).json(employee);
+app.put('/api/employees/:id', requireAuth, wrap(async (req, res) => {
+  const parsed = parseEmployeeBody(req.body);
+  if (parsed.error) return res.status(400).json({ success: false, message: parsed.error });
+  const employee = await store.update(req.params.id, parsed.value);
+  if (!employee) return res.status(404).json({ success: false, message: 'Employee not found' });
+  res.status(200).json(employee);
 }));
 
 app.put('/api/employees/:id/status', requireAuth, wrap(async (req, res) => {

@@ -15,6 +15,7 @@ import {
   getEmployees,
   getSalaryClusters,
   toggleStatus,
+  updateEmployee,
 } from '../api';
 import { confirmDialog, showMessage } from '../dialogs';
 import { colors, font, tabular, tierBg, tierBorder, tierText } from '../theme';
@@ -28,6 +29,80 @@ function StatusPill({ status }) {
     <View style={[styles.pill, { backgroundColor: active ? colors.accentSoft : colors.amberSoft }]}>
       <View style={[styles.pillDot, { backgroundColor: active ? colors.accent : colors.amber }]} />
       <Text style={[styles.pillText, { color: active ? colors.accent : colors.amber }]}>{status}</Text>
+    </View>
+  );
+}
+
+// ---- Inline edit form for one employee ----
+function EditForm({ item, onSave, onCancel }) {
+  const [name, setName] = useState(item.name);
+  const [position, setPosition] = useState(item.position);
+  const [salary, setSalary] = useState(String(item.salary));
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    const n = name.trim();
+    const p = position.trim();
+    const sal = salary.trim();
+    if (!n || !p || !sal) {
+      showMessage('Missing information', 'Please fill in name, position and salary.');
+      return;
+    }
+    if (isNaN(Number(sal)) || Number(sal) < 0) {
+      showMessage('Invalid salary', 'Salary must be a valid number.');
+      return;
+    }
+    setSaving(true);
+    const ok = await onSave(item.id, { name: n, position: p, salary: Number(sal) });
+    if (!ok) setSaving(false); // on success this form is replaced by the normal row
+  };
+
+  return (
+    <View>
+      <Text style={styles.editTitle}>Edit employee</Text>
+      <Field label="Name" value={name} onChangeText={setName} />
+      <Field label="Position" value={position} onChangeText={setPosition} />
+      <Field label="Salary" keyboardType="numeric" value={salary} onChangeText={setSalary} />
+      <View style={styles.actions}>
+        <Button title="Save Changes" onPress={submit} loading={saving} style={styles.actionBtn} />
+        <Button title="Cancel" variant="outline" onPress={onCancel} disabled={saving} style={styles.actionBtn} />
+      </View>
+    </View>
+  );
+}
+
+// ---- One row in the employee list ----
+function EmployeeRow({ item, maxSalary, editing, onEdit, onCancel, onSave, onToggle, onDelete }) {
+  if (editing) {
+    return (
+      <View style={[styles.row, styles.rowEditing]}>
+        <EditForm item={item} onSave={onSave} onCancel={onCancel} />
+      </View>
+    );
+  }
+  const pct = maxSalary > 0 ? Math.max(3, (Number(item.salary) / maxSalary) * 100) : 0;
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowMain}>
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text style={styles.empName}>{item.name}</Text>
+          <Text style={styles.empPosition}>{item.position}</Text>
+        </View>
+        <View style={{ alignItems: 'flex-end' }}>
+          <Text style={[styles.empSalary, tabular]}>{formatMoney(item.salary)}</Text>
+          <StatusPill status={item.status} />
+        </View>
+      </View>
+
+      <View style={styles.track}>
+        <View style={[styles.fill, { width: `${pct}%` }]} />
+      </View>
+
+      <View style={styles.actions}>
+        <Button title="Edit" variant="outline" compact onPress={() => onEdit(item.id)} style={styles.editBtn} />
+        <Button title="Toggle Status" variant="outline" compact onPress={() => onToggle(item.id)} style={styles.toggleBtn} />
+        <Button title="Delete" variant="danger" compact onPress={() => onDelete(item)} style={styles.toggleBtn} />
+      </View>
     </View>
   );
 }
@@ -175,6 +250,8 @@ export default function DashboardScreen({ onLogout }) {
   const [clusters, setClusters] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [picked, setPicked] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [query, setQuery] = useState('');
 
   const handleError = useCallback(
     (e) => {
@@ -230,6 +307,21 @@ export default function DashboardScreen({ onLogout }) {
     }
   };
 
+  // ---- Edit ------------------------------------------------------------
+  const handleSave = async (id, data) => {
+    try {
+      const updated = await updateEmployee(id, data);
+      setEmployees((prev) => prev.map((e) => (e.id === id ? updated : e)));
+      setEditingId(null);
+      setClusters(null); // salaries may have changed -> old analysis is out of date
+      setPicked(null);
+      return true;
+    } catch (e) {
+      handleError(e);
+      return false;
+    }
+  };
+
   // ---- Toggle ----------------------------------------------------------
   const handleToggle = async (id) => {
     try {
@@ -246,6 +338,7 @@ export default function DashboardScreen({ onLogout }) {
       try {
         await deleteEmployee(employee.id);
         setEmployees((prev) => prev.filter((e) => e.id !== employee.id));
+        setEditingId((cur) => (cur === employee.id ? null : cur));
         setClusters(null);
       } catch (e) {
         handleError(e);
@@ -269,6 +362,12 @@ export default function DashboardScreen({ onLogout }) {
   };
 
   // ---- UI pieces (plain elements, NOT components, so inputs keep focus) ----
+  const term = query.trim().toLowerCase();
+  const visible = term
+    ? employees.filter(
+        (e) => e.name.toLowerCase().includes(term) || e.position.toLowerCase().includes(term)
+      )
+    : employees;
   const maxSalary = employees.reduce((m, e) => Math.max(m, Number(e.salary) || 0), 0);
 
   const topBar = (
@@ -335,50 +434,51 @@ export default function DashboardScreen({ onLogout }) {
 
   const listHeader = (
     <View>
-      <Text style={styles.listTitle}>All employees</Text>
+      <View style={styles.listHeadRow}>
+        <Text style={styles.listTitle}>All employees</Text>
+        <Text style={styles.listCount}>
+          {term ? `${visible.length} of ${employees.length}` : `${employees.length}`}
+        </Text>
+      </View>
+      <View style={styles.searchRow}>
+        <View style={{ flex: 1 }}>
+          <Field
+            label="Search"
+            placeholder="Name or position"
+            value={query}
+            onChangeText={setQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+            returnKeyType="search"
+          />
+        </View>
+        {query.length > 0 && (
+          <Pressable accessibilityRole="button" onPress={() => setQuery('')} style={styles.clearBtn}>
+            <Text style={styles.clearText}>Clear</Text>
+          </Pressable>
+        )}
+      </View>
       {loadingList && <ActivityIndicator style={{ margin: 16 }} color={colors.accent} />}
     </View>
   );
 
-  const renderItem = ({ item }) => {
-    const pct = maxSalary > 0 ? Math.max(3, (Number(item.salary) / maxSalary) * 100) : 0;
-    return (
-      <View style={styles.row}>
-        <View style={styles.rowMain}>
-          <View style={{ flex: 1, paddingRight: 12 }}>
-            <Text style={styles.empName}>{item.name}</Text>
-            <Text style={styles.empPosition}>{item.position}</Text>
-          </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={[styles.empSalary, tabular]}>{formatMoney(item.salary)}</Text>
-            <StatusPill status={item.status} />
-          </View>
-        </View>
-
-        <View style={styles.track}>
-          <View style={[styles.fill, { width: `${pct}%` }]} />
-        </View>
-
-        <View style={styles.actions}>
-          <Button
-            title="Toggle Status"
-            variant="outline"
-            onPress={() => handleToggle(item.id)}
-            style={styles.actionBtn}
-          />
-          <Button
-            title="Delete"
-            variant="danger"
-            onPress={() => handleDelete(item)}
-            style={styles.actionBtn}
-          />
-        </View>
-      </View>
-    );
-  };
+  const renderItem = ({ item }) => (
+    <EmployeeRow
+      item={item}
+      maxSalary={maxSalary}
+      editing={editingId === item.id}
+      onEdit={setEditingId}
+      onCancel={() => setEditingId(null)}
+      onSave={handleSave}
+      onToggle={handleToggle}
+      onDelete={handleDelete}
+    />
+  );
 
   const emptyList = !loadingList ? (
-    <Text style={styles.empty}>No employees yet. Add one with the form.</Text>
+    <Text style={styles.empty}>
+      {term ? `No employees match "${query.trim()}".` : 'No employees yet. Add one with the form.'}
+    </Text>
   ) : null;
 
   // ---- Layouts -----------------------------------------------------------
@@ -398,7 +498,8 @@ export default function DashboardScreen({ onLogout }) {
           <FlatList
             style={{ flex: 1 }}
             contentContainerStyle={{ paddingBottom: 24 }}
-            data={employees}
+            data={visible}
+            extraData={editingId}
             keyExtractor={(item) => item.id}
             renderItem={renderItem}
             ListHeaderComponent={listHeader}
@@ -413,7 +514,8 @@ export default function DashboardScreen({ onLogout }) {
     <FlatList
       style={{ flex: 1 }}
       contentContainerStyle={styles.narrowContent}
-      data={employees}
+      data={visible}
+            extraData={editingId}
       keyExtractor={(item) => item.id}
       renderItem={renderItem}
       ListHeaderComponent={
@@ -496,7 +598,16 @@ const styles = StyleSheet.create({
   tierCount: { fontFamily: font.medium, fontSize: 13, color: colors.inkSoft, marginTop: 2 },
 
   // employee rows
-  listTitle: { fontSize: 17, fontFamily: font.black, color: colors.ink, marginBottom: 12 },
+  listHeadRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 },
+  listCount: { fontFamily: font.semibold, fontSize: 13, color: colors.inkSoft },
+  searchRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  clearBtn: { paddingHorizontal: 10, paddingTop: 36, paddingBottom: 10 },
+  clearText: { fontFamily: font.bold, fontSize: 14, color: colors.accent, textDecorationLine: 'underline' },
+  rowEditing: { borderColor: colors.accent, borderWidth: 2 },
+  editTitle: { fontFamily: font.bold, fontSize: 16, color: colors.ink, marginBottom: 12 },
+  editBtn: { flex: 0.8 },
+  toggleBtn: { flex: 1.2 },
+  listTitle: { fontSize: 17, fontFamily: font.black, color: colors.ink },
   row: {
     backgroundColor: colors.surface,
     borderRadius: 12,

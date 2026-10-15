@@ -42,6 +42,9 @@ export const getEmployees = () => request('/api/employees');
 export const addEmployee = (employee) =>
   request('/api/employees', { method: 'POST', body: JSON.stringify(employee) });
 
+export const updateEmployee = (id, employee) =>
+  request(`/api/employees/${id}`, { method: 'PUT', body: JSON.stringify(employee) });
+
 export const toggleStatus = (id) => request(`/api/employees/${id}/status`, { method: 'PUT' });
 
 export const deleteEmployee = (id) => request(`/api/employees/${id}`, { method: 'DELETE' });

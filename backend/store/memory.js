@@ -20,6 +20,14 @@ module.exports = {
     employees.push(e);
     return { ...e };
   },
+  async update(id, { name, position, salary }) {
+    const e = employees.find((x) => x.id === id);
+    if (!e) return null;
+    e.name = name;
+    e.position = position;
+    e.salary = salary;
+    return { ...e };
+  },
   async toggle(id) {
     const e = employees.find((x) => x.id === id);
     if (!e) return null;
