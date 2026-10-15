@@ -1,7 +1,7 @@
 // MySQL store. Uses a NEW table so existing tables in the database are never touched.
 const mysql = require('mysql2/promise');
 
-const TABLE = 'hr_employees';
+const TABLE = 'PonSom_202688';
 // Database column names. If the exam requires prefixed names
 // (e.g. NinSom_xxxxxx), change ONLY these strings.
 const COL = { id: 'id', name: 'name', position: 'position', status: 'status', salary: 'salary' };

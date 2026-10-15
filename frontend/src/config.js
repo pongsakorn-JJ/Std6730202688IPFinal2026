@@ -2,7 +2,7 @@ import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 
 // ---- Change these if needed -------------------------------------------
-const USE_CLOUD = false; // true -> use the teacher's cloud server below
+const USE_CLOUD = true;  // true -> use the teacher's cloud server below
 const CLOUD_URL = 'http://119.59.102.161:3063';
 const LOCAL_PORT = 3000; // port of the local Express backend
 // -----------------------------------------------------------------------
